@@ -1,9 +1,7 @@
 /*
- * Copyright (c) 1998-2003 Apple Computer, Inc. All rights reserved.
+ * Copyright (c) 1998-2005 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
- * 
- * Copyright (c) 1999-2003 Apple Computer, Inc.  All Rights Reserved.
  * 
  * This file contains Original Code and/or Modifications of Original Code
  * as defined in and that are subject to the Apple Public Source License
@@ -43,10 +41,6 @@ const UInt32 kPollerInterval = 1000;                           // (ms, 1 second)
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 #define isMediaRemovable() _removable
-
-#define kIOPropertyProtocolCharacteristicsKey      "Protocol Characteristics"
-#define kIOPropertyPhysicalInterconnectLocationKey "Physical Interconnect Location"
-#define kIOPropertyExternalKey                     "External"
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -628,6 +622,8 @@ void IOBlockStorageDriver::prepareRequest(UInt64               byteStart,
     context->original.buffer->retain();
     context->original.completion = completion;
 
+    clock_get_uptime(&context->timeStart);
+
     completion.target    = this;
     completion.action    = prepareRequestCompletion;
     completion.parameter = context;
@@ -653,7 +649,9 @@ void IOBlockStorageDriver::prepareRequestCompletion(void *   target,
     Context *              context = (Context              *) parameter;
     IOBlockStorageDriver * driver  = (IOBlockStorageDriver *) target;
     bool                   isWrite;
-    
+    AbsoluteTime           time;
+    UInt64                 timeInNanoseconds;
+
     isWrite = (context->original.buffer->getDirection() == kIODirectionOut);
 
     // Update the error state, on a short transfer.
@@ -673,9 +671,13 @@ void IOBlockStorageDriver::prepareRequestCompletion(void *   target,
         driver->_mediaDirtied = true;
     }
 
-    // Update the total number of bytes transferred.
+    // Update the total number of bytes transferred and the total transfer time.
 
-    driver->addToBytesTransferred(actualByteCount, 0, 0, isWrite);
+    clock_get_uptime(&time);
+    SUB_ABSOLUTETIME(&time, &context->timeStart);
+    absolutetime_to_nanoseconds(time, &timeInNanoseconds);
+
+    driver->addToBytesTransferred(actualByteCount, timeInNanoseconds, 0, isWrite);
 
     // Update the total error count.
 
@@ -906,9 +908,12 @@ IOBlockStorageDriver::checkForMedia(void)
     if (result != kIOReturnSuccess) {		/* the poll operation failed */
         IOLog("%s[IOBlockStorageDriver]::checkForMedia; err '%s' from reportMediaState\n",
               getName(),stringFromReturn(result));
-    } else if (changed) {	/* the poll succeeded, media state has changed */
-        result = mediaStateHasChanged(currentState ? kIOMediaStateOnline
-                                                   : kIOMediaStateOffline);
+    } else {
+        changed = currentState ? !_mediaPresent : _mediaPresent;
+        if (changed) {	/* the poll succeeded, media state has changed */
+            result = mediaStateHasChanged(currentState ? kIOMediaStateOnline
+                                                       : kIOMediaStateOffline);
+        }
     }
 
     IOLockUnlock(_mediaStateLock);
@@ -923,6 +928,10 @@ IOBlockStorageDriver::mediaStateHasChanged(IOMediaState state)
     /* The media has changed state. See if it's just inserted or removed. */
 
     if (state == kIOMediaStateOnline) {		/* media is now present */
+
+        if (_mediaPresent) {
+            return(kIOReturnBadArgument);
+        }
 
         /* Allow a subclass to decide whether we accept the media. Such a
          * decision might be based on things like password-protection, etc.
@@ -1194,7 +1203,7 @@ IOBlockStorageDriver::handlePowerEvent(void *target,void *refCon,
                     if (driver->_mediaDirtied) {
                         driver->synchronizeCache(driver);
                     }
-                    if (!driver->isMediaRemovable()) {
+                    if (!driver->isMediaRemovable() && (messageType == kIOMessageSystemWillPowerOff)) {
                         driver->getProvider()->doEjectMedia();
                     }
                 }

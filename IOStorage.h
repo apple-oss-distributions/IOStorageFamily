@@ -1,9 +1,7 @@
 /*
- * Copyright (c) 1998-2003 Apple Computer, Inc. All rights reserved.
+ * Copyright (c) 1998-2005 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
- * 
- * Copyright (c) 1999-2003 Apple Computer, Inc.  All Rights Reserved.
  * 
  * This file contains Original Code and/or Modifications of Original Code
  * as defined in and that are subject to the Apple Public Source License
@@ -53,13 +51,22 @@
  * Read-only access is requested.
  * @constant kIOStorageAccessReaderWriter
  * Read and write access is requested.
+ * @constant kIOStorageAccessSharedLock
+ * Shared access is requested.
+ * @constant kIOStorageAccessExclusiveLock
+ * Exclusive access is requested.
  */
 
-typedef UInt32 IOStorageAccess;
+enum
+{
+    kIOStorageAccessNone          = 0x00,
+    kIOStorageAccessReader        = 0x01,
+    kIOStorageAccessReaderWriter  = 0x03,
+    kIOStorageAccessSharedLock    = 0x04,
+    kIOStorageAccessExclusiveLock = 0x08
+};
 
-#define kIOStorageAccessNone         0x00
-#define kIOStorageAccessReader       0x01
-#define kIOStorageAccessReaderWriter 0x03
+typedef UInt32 IOStorageAccess;
 
 /*!
  * @defined kIOStorageCategory

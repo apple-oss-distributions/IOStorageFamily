@@ -22,37 +22,23 @@
  */
 
 /*!
- * @header IOPartitionScheme
+ * @header IOFilterScheme
  * @abstract
- * This header contains the IOPartitionScheme class definition.
+ * This header contains the IOFilterScheme class definition.
  */
 
-#ifndef _IOPARTITIONSCHEME_H
-#define _IOPARTITIONSCHEME_H
+#ifndef _IOFILTERSCHEME_H
+#define _IOFILTERSCHEME_H
 
 /*!
- * @defined kIOPartitionSchemeClass
+ * @defined kIOFilterSchemeClass
  * @abstract
- * The name of the IOPartitionScheme class.
+ * The name of the IOFilterScheme class.
  * @discussion
- * kIOPartitionSchemeClass is the name of the IOPartitionScheme class.
+ * kIOFilterSchemeClass is the name of the IOFilterScheme class.
  */
 
-#define kIOPartitionSchemeClass "IOPartitionScheme"
-
-/*!
- * @defined kIOMediaPartitionIDKey
- * @abstract
- * A property of IOMedia objects.
- * @discussion
- * The kIOMediaPartitionIDKey property has an OSNumber
- * value and is placed into each IOMedia instance
- * created via the partition scheme.  It is an ID that differentiates one 
- * partition from the other (within a given scheme).  It is typically an index
- * into the on-disk partition table.
- */
-
-#define kIOMediaPartitionIDKey "Partition ID"
+#define kIOFilterSchemeClass "IOFilterScheme"
 
 #ifdef KERNEL
 #ifdef __cplusplus
@@ -65,39 +51,30 @@
 #include <IOKit/storage/IOStorage.h>
 
 /*!
- * @class IOPartitionScheme
+ * @class IOFilterScheme
  * @abstract
- * The common base class for all partition scheme
+ * The common base class for all filter scheme
  * objects.
  * @discussion
- * The IOPartitionScheme class is the common base class for all partition scheme
- * objects.  It extends the IOStorage class by implementing the appropriate open
- * and close semantics for partition objects (standard semantics are to act as a
- * multiplexor for incoming opens,  producing one outgoing open with the correct
- * access).  It also implements the default read and write semantics, which pass
- * all reads and writes through to the provider media unprocessed.    For simple
- * schemes, the default behavior is sufficient.   More complex partition schemes
- * such as RAID will want to do extra processing for reads and writes.
+ * The IOFilterScheme class is the common base class for all filter scheme
+ * objects.  It extends the IOStorage class by implementing the appropriate
+ * open and close semantics for filter objects (standard semantics are act
+ * as a relay for incoming opens, producing one outgoing open for each
+ * incoming open).  It also implements the default read and write semantics,
+ * which pass all reads and writes through to the provider media unprocessed.
+ * For simple schemes, the default behavior is sufficient.  More complex
+ * filter schemes such as RAID will want to do extra processing for reads
+ * and writes.
  */
 
-class IOPartitionScheme : public IOStorage
+class IOFilterScheme : public IOStorage
 {
-    OSDeclareDefaultStructors(IOPartitionScheme);
+    OSDeclareDefaultStructors(IOFilterScheme);
 
 protected:
 
     struct ExpansionData { /* */ };
     ExpansionData * _expansionData;
-
-    IOStorageAccess _openLevel;
-    OSSet *         _openReaders;
-    OSSet *         _openReaderWriters;
-
-    /*
-     * Free all of this object's outstanding resources.
-     */
-
-    virtual void free();
 
     /*!
      * @function handleOpen
@@ -164,12 +141,6 @@ public:
     using IOStorage::read;
     using IOStorage::write;
 
-    /*
-     * Initialize this object's minimal state.
-     */
-
-    virtual bool init(OSDictionary * properties = 0);
-
     /*!
      * @function read
      * @discussion
@@ -179,8 +150,8 @@ public:
      *
      * The buffer will be retained for the duration of the read.
      *
-     * For simple partition schemes, the default behavior is to simply pass the
-     * read through to the provider media.  More complex partition schemes such
+     * For simple filter schemes, the default behavior is to simply pass the
+     * read through to the provider media.  More complex filter schemes such
      * as RAID will need to do extra processing here.
      * @param client
      * Client requesting the read.
@@ -207,8 +178,8 @@ public:
      *
      * The buffer will be retained for the duration of the write.
      *
-     * For simple partition schemes, the default behavior is to simply pass the
-     * write through to the provider media. More complex partition schemes such
+     * For simple filter schemes, the default behavior is to simply pass the
+     * write through to the provider media. More complex filter schemes such
      * as RAID will need to do extra processing here.
      * @param client
      * Client requesting the write.
@@ -246,40 +217,40 @@ public:
 
     virtual IOMedia * getProvider() const;
 
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme,  0);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme,  1);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme,  2);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme,  3);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme,  4);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme,  5);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme,  6);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme,  7);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme,  8);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme,  9);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 10);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 11);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 12);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 13);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 14);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 15);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 16);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 17);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 18);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 19);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 20);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 21);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 22);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 23);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 24);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 25);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 26);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 27);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 28);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 29);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 30);
-    OSMetaClassDeclareReservedUnused(IOPartitionScheme, 31);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme,  0);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme,  1);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme,  2);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme,  3);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme,  4);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme,  5);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme,  6);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme,  7);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme,  8);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme,  9);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 10);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 11);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 12);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 13);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 14);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 15);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 16);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 17);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 18);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 19);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 20);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 21);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 22);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 23);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 24);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 25);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 26);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 27);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 28);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 29);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 30);
+    OSMetaClassDeclareReservedUnused(IOFilterScheme, 31);
 };
 
 #endif /* __cplusplus */
 #endif /* KERNEL */
-#endif /* !_IOPARTITIONSCHEME_H */
+#endif /* !_IOFILTERSCHEME_H */

@@ -1,9 +1,7 @@
 /*
- * Copyright (c) 1998-2003 Apple Computer, Inc. All rights reserved.
+ * Copyright (c) 1998-2005 Apple Computer, Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
- * 
- * Copyright (c) 1999-2003 Apple Computer, Inc.  All Rights Reserved.
  * 
  * This file contains Original Code and/or Modifications of Original Code
  * as defined in and that are subject to the Apple Public Source License
@@ -50,10 +48,6 @@ OSDefineMetaClassAndStructors(IOApplePartitionScheme, IOPartitionScheme);
 //       byte block size (for the one partition)
 // o the dpme_pblock_start block value is relative to the media container
 //
-
-// - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-
-#define kIOApplePartitionSchemeContentTable "Content Table"
 
 // - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -289,7 +283,7 @@ OSSet * IOApplePartitionScheme::scan(SInt32 * score)
 
         // Determine whether the partition entry signature is present.
 
-        if (OSSwapBigToHostInt16(dpmeMap->dpme_signature) == DPME_SIGNATURE)
+        if ( OSSwapBigToHostInt16(dpmeMap->dpme_signature) == DPME_SIGNATURE )
         {
             dpmeBlockSize = sizeof(dpme);             // (old school block size)
             dpmeOldSchool = true;
@@ -496,24 +490,6 @@ IOMedia * IOApplePartitionScheme::instantiateMediaObject(
     if ( partitionBase + partitionSize > media->getSize() )
     {
         partitionSize = media->getSize() - partitionBase;
-    }
-
-    // Look up a type for the new partition.
-
-    OSDictionary * hintTable = OSDynamicCast( 
-              /* type     */ OSDictionary,
-              /* instance */ getProperty(kIOApplePartitionSchemeContentTable) );
-
-    if ( hintTable )
-    {
-        OSString * hintValue = OSDynamicCast( 
-                       /* type     */ OSString,
-                       /* instance */ hintTable->getObject(partitionHint) );
-
-        if ( hintValue )
-        {
-            strncmp(partitionHint, hintValue->getCStringNoCopy(), DPISTRLEN);
-        }
     }
 
     // Determine whether the new partition type is Apple_Free, which we choose
