@@ -255,11 +255,12 @@ typedef UInt32 IOMediaState;
 #define kIOMediaStateOnline  1
 #define kIOMediaStateBusy    2
 
+#ifdef KERNEL
+#ifdef __cplusplus
+
 /*
  * Kernel
  */
-
-#if defined(KERNEL) && defined(__cplusplus)
 
 #include <IOKit/storage/IOBlockStorageDevice.h>
 #include <IOKit/storage/IOMedia.h>
@@ -368,8 +369,26 @@ public:
 
 protected:
 
-    struct ExpansionData { /* */ };
+    struct ExpansionData
+    {
+        bool         mediaDirtied;
+        UInt64       maxReadBlockTransfer;
+        UInt64       maxWriteBlockTransfer;
+        IONotifier * powerEventNotifier;
+        UInt32       deblockRequestWriteLockCount;
+    };
     ExpansionData * _expansionData;
+
+    #define _mediaDirtied                 \
+              IOBlockStorageDriver::_expansionData->mediaDirtied
+    #define _maxReadBlockTransfer         \
+              IOBlockStorageDriver::_expansionData->maxReadBlockTransfer
+    #define _maxWriteBlockTransfer        \
+              IOBlockStorageDriver::_expansionData->maxWriteBlockTransfer
+    #define _powerEventNotifier           \
+              IOBlockStorageDriver::_expansionData->powerEventNotifier
+    #define _deblockRequestWriteLockCount \
+              IOBlockStorageDriver::_expansionData->deblockRequestWriteLockCount
 
     OSSet *         _openClients;
     OSNumber *      _statistics[kStatisticsCount];
@@ -561,8 +580,10 @@ protected:
      * This method is part of a sequence of methods invoked for each read/write
      * request.  The first is prepareRequest, which allocates and prepares some
      * context for the transfer; the second is deblockRequest, which aligns the
-     * transfer at the media block boundaries; and the third is executeRequest,
-     * which implements the actual transfer from the block storage device.
+     * transfer at the media's block boundaries; third is breakUpRequest, which
+     * breaks up the transfer into multiple sub-transfers when certain hardware
+     * constraints are exceeded; fourth is executeRequest, which implements the
+     * actual transfer from the block storage device.
      *
      * This method's implementation is not typically overidden.
      * @param byteStart
@@ -589,8 +610,10 @@ protected:
      * This method is part of a sequence of methods invoked for each read/write
      * request.  The first is prepareRequest, which allocates and prepares some
      * context for the transfer; the second is deblockRequest, which aligns the
-     * transfer at the media block boundaries; and the third is executeRequest,
-     * which implements the actual transfer from the block storage device.
+     * transfer at the media's block boundaries; third is breakUpRequest, which
+     * breaks up the transfer into multiple sub-transfers when certain hardware
+     * constraints are exceeded; fourth is executeRequest, which implements the
+     * actual transfer from the block storage device.
      *
      * This method's implementation is not typically overidden.
      * @param byteStart
@@ -612,14 +635,16 @@ protected:
     /*!
      * @function executeRequest
      * @discussion
-     * Execute an asynchrnous storage request.  The request is guaranteed to be
+     * Execute an asynchronous storage request.  The request is guaranteed to be
      * block-aligned.
      *
      * This method is part of a sequence of methods invoked for each read/write
      * request.  The first is prepareRequest, which allocates and prepares some
      * context for the transfer; the second is deblockRequest, which aligns the
-     * transfer at the media block boundaries; and the third is executeRequest,
-     * which implements the actual transfer from the block storage device.
+     * transfer at the media's block boundaries; third is breakUpRequest, which
+     * breaks up the transfer into multiple sub-transfers when certain hardware
+     * constraints are exceeded; fourth is executeRequest, which implements the
+     * actual transfer from the block storage device.
      * @param byteStart
      * Starting byte offset for the data transfer.
      * @param buffer
@@ -660,15 +685,12 @@ protected:
      * @discussion
      * Stop the block storage driver.
      *
-     * This method is called as a result of the kIOMessageServiceIsTerminated
-     * or kIOMessageServiceIsRequestingClose provider messages.  The argument
-     * is passed in as-is from the message.  The kIOServiceRequired option is
-     * set for the kIOMessageServiceIsTerminated message to indicate that the
-     * yield must succeed.
+     * This method is called as a result of a kIOMessageServiceIsRequestingClose
+     * provider message.  The argument is passed in as-is from the message.  The
+     * options are unused.
      *
      * This is where the driver should clean up its state in preparation for
-     * removal from the system.  This implementation issues a synchronize cache
-     * operation, if the media is writable, and then ejects the media.
+     * removal from the system.
      *
      * Note that this method is called from within the yield() routine.
      *
@@ -694,10 +716,8 @@ protected:
 
 public:
 
-///m:2333367:workaround:commented:start
-//  using read;
-//  using write;
-///m:2333367:workaround:commented:stop
+    using IOStorage::read;
+    using IOStorage::write;
 
     /*
      * Initialize this object's minimal state.
@@ -716,13 +736,17 @@ public:
     virtual bool start(IOService * provider);
 
     /*
-     * This method is called as a result of the kIOMessageServiceIsTerminated
-     * or kIOMessageServiceIsRequestingClose provider messages.  The argument
-     * is passed in as-is from the message.  The kIOServiceRequired option is
-     * set for the kIOMessageServiceIsTerminated message to indicate that the
-     * yield must succeed.
+     * This method is called before we are detached from the provider object.
      *
-     * This method is called with the arbitration lock held.
+     * This method's implementation is not typically overidden.
+     */
+
+    virtual void stop(IOService * provider);
+
+    /*
+     * This method is called as a result of a kIOMessageServiceIsRequestingClose
+     * provider message.  The argument is passed in as-is from the message.  The
+     * options are unused.
      *
      * This method's implementation is not typically overidden.
      */
@@ -737,11 +761,13 @@ public:
      * The read method is the receiving end for all read requests from the
      * storage framework (through the media object created by this driver).
      *
-     * This method kicks off a sequence of three methods for each read or write
+     * This method initiates a sequence of methods (stages) for each read/write
      * request.  The first is prepareRequest, which allocates and prepares some
      * context for the transfer; the second is deblockRequest, which aligns the
-     * transfer at the media block boundaries; and the third is executeRequest,
-     * which implements the actual transfer from the block storage device.
+     * transfer at the media's block boundaries; third is breakUpRequest, which
+     * breaks up the transfer into multiple sub-transfers when certain hardware
+     * constraints are exceeded; fourth is executeRequest, which implements the
+     * actual transfer from the block storage device.
      *
      * This method's implementation is not typically overidden.
      * @param client
@@ -766,11 +792,13 @@ public:
      * The write method is the receiving end for all write requests from the
      * storage framework (through the media object created by this driver).
      *
-     * This method kicks off a sequence of three methods for each read or write
+     * This method initiates a sequence of methods (stages) for each read/write
      * request.  The first is prepareRequest, which allocates and prepares some
      * context for the transfer; the second is deblockRequest, which aligns the
-     * transfer at the media block boundaries; and the third is executeRequest,
-     * which implements the actual transfer from the block storage device.
+     * transfer at the media's block boundaries; third is breakUpRequest, which
+     * breaks up the transfer into multiple sub-transfers when certain hardware
+     * constraints are exceeded; fourth is executeRequest, which implements the
+     * actual transfer from the block storage device.
      *
      * This method's implementation is not typically overidden.
      * @param client
@@ -788,6 +816,16 @@ public:
                        UInt64               byteStart,
                        IOMemoryDescriptor * buffer,
                        IOStorageCompletion  completion);
+
+    /*!
+     * @function synchronizeCache
+     * @discussion
+     * Flush the cached data in the storage object, if any, synchronously.
+     * @param client
+     * Client requesting the cache synchronization.
+     * @result
+     * Returns the status of the cache synchronization.
+     */
 
     virtual IOReturn synchronizeCache(IOService * client);
 
@@ -969,6 +1007,17 @@ protected:
     thread_call_t _pollerCall;
 
     /*
+     * This is the completion routine for the broken up breaker subrequests.
+     * It verifies the success of the just-completed stage,  transitions to
+     * the next stage, then builds and issues a transfer for the next stage.
+     */
+
+    static void breakUpRequestCompletion(void *   target,
+                                         void *   parameter,
+                                         IOReturn status,
+                                         UInt64   actualByteCount);
+
+    /*
      * This is the completion routine for the aligned deblocker subrequests.
      * It verifies the success of the just-completed stage,  transitions to
      * the next stage, then builds and issues a transfer for the next stage.
@@ -1008,6 +1057,17 @@ protected:
      */
 
     static void poller(void *, void *);
+
+    /*
+     * This method is the power event handler for restarts and shutdowns.
+     */
+
+    static IOReturn handlePowerEvent(void *      target,
+                                     void *      parameter,
+                                     UInt32      messageType,
+                                     IOService * provider,
+                                     void *      messageArgument,
+                                     vm_size_t   messageArgumentSize);
 
 protected:
 
@@ -1281,7 +1341,42 @@ protected:
      * @endgroup
      */
 
-    OSMetaClassDeclareReservedUnused(IOBlockStorageDriver,  0);
+protected:
+
+    /*!
+     * @function breakUpRequest
+     * @discussion
+     * The breakUpRequest method checks to see if the incoming request exceeds
+     * our transfer constraints, and if so, breaks up the request into smaller
+     * sub-requests.
+     *
+     * This method is part of a sequence of methods invoked for each read/write
+     * request.  The first is prepareRequest, which allocates and prepares some
+     * context for the transfer; the second is deblockRequest, which aligns the
+     * transfer at the media's block boundaries; third is breakUpRequest, which
+     * breaks up the transfer into multiple sub-transfers when certain hardware
+     * constraints are exceeded; fourth is executeRequest, which implements the
+     * actual transfer from the block storage device.
+     *
+     * This method's implementation is not typically overidden.
+     * @param byteStart
+     * Starting byte offset for the data transfer.
+     * @param buffer
+     * Buffer for the data transfer.  The size of the buffer implies the size of
+     * the data transfer.
+     * @param completion
+     * Completion routine to call once the data transfer is complete.
+     * @param context
+     * Additional context information for the data transfer (eg. block size).
+     */
+
+    virtual void breakUpRequest(UInt64               byteStart,
+                                IOMemoryDescriptor * buffer,
+                                IOStorageCompletion  completion,
+                                Context *            context);
+
+    OSMetaClassDeclareReservedUsed(IOBlockStorageDriver, 0); /* 10.1.2 */
+
     OSMetaClassDeclareReservedUnused(IOBlockStorageDriver,  1);
     OSMetaClassDeclareReservedUnused(IOBlockStorageDriver,  2);
     OSMetaClassDeclareReservedUnused(IOBlockStorageDriver,  3);
@@ -1315,6 +1410,6 @@ protected:
     OSMetaClassDeclareReservedUnused(IOBlockStorageDriver, 31);
 };
 
-#endif /* defined(KERNEL) && defined(__cplusplus) */
-
+#endif /* __cplusplus */
+#endif /* KERNEL */
 #endif /* !_IOBLOCKSTORAGEDRIVER_H */
