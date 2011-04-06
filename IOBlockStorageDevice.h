@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998-2009 Apple Inc. All rights reserved.
+ * Copyright (c) 1998-2011 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
  * 
@@ -78,9 +78,6 @@
  * @discussion
  * The message is passed to all clients of the IOBlockStorageDevice via the message() method.
  * The argument that is passed along with this message is an IOMediaState value.
- *
- * Devices that aren't capable of detecting media state changes indicate this in
- * the reportPollRequirements() method.
  */
 #define kIOMessageMediaStateHasChanged iokit_family_msg(sub_iokit_block_storage, 1)
 
@@ -96,6 +93,22 @@
  * @abstract A character string used for nub matching.
  */
 #define	kIOBlockStorageDeviceTypeGeneric	"Generic"
+
+/*!
+ * @struct IOBlockStorageDeviceExtent
+ * @abstract
+ * Extent for unmap storage requests.
+ * @field blockStart
+ * The starting block number of the operation.
+ * @field blockCount
+ * The integral number of blocks to be deleted.
+ */
+
+struct IOBlockStorageDeviceExtent
+{
+    UInt64 blockStart;
+    UInt64 blockCount;
+};
 
 /*!
  * @class
@@ -196,17 +209,8 @@ public:
      */
     virtual UInt32	doGetFormatCapacities(UInt64 * capacities,
                                             UInt32   capacitiesMaxCount) const	= 0;
-    
-    /*!
-     * @function doLockUnlockMedia
-     * @abstract
-     * Lock or unlock the (removable) media in the drive.
-     * @discussion
-     * This method should only be called if the media is known to be removable.
-     * @param doLock
-     * True to lock the media, False to unlock.
-     */
-    virtual IOReturn	doLockUnlockMedia(bool doLock)	= 0;
+
+    virtual IOReturn	doLockUnlockMedia(bool doLock) __attribute__ ((deprecated));
 
     /*!
      * @function doSynchronizeCache
@@ -274,17 +278,7 @@ public:
      */
     virtual IOReturn	reportEjectability(bool *isEjectable)	= 0;
 
-    /*!
-     * @function reportLockability
-     * @abstract
-     * Report if the media is lockable under software control.
-     * @discussion
-     * This method should only be called if the media is known to be removable.
-     * @param isLockable
-     * Pointer to returned result. True indicates the media can be locked in place; False
-     * indicates the media cannot be locked by software.
-     */
-    virtual IOReturn	reportLockability(bool *isLockable)	= 0;
+    virtual IOReturn	reportLockability(bool *isLockable) __attribute__ ((deprecated));
 
 #ifndef __LP64__
     virtual IOReturn	reportMaxReadTransfer(UInt64 blockSize,UInt64 *max) __attribute__ ((deprecated));
@@ -316,30 +310,11 @@ public:
      * outputs mediaState and changedState will *not* be stored.
      * @param mediaPresent Pointer to returned media state. True indicates media is present
      * in the device; False indicates no media is present.
-     * @param changedState Pointer to returned result. True indicates a change of state since
-     * prior calls, False indicates that the state has not changed.
      */
-    virtual IOReturn	reportMediaState(bool *mediaPresent,bool *changedState)	= 0;
+    virtual IOReturn	reportMediaState(bool *mediaPresent,bool *changedState = 0)	= 0;
     
-    /*!
-     * @function reportPollRequirements
-     * @abstract
-     * Report if it's necessary to poll for media insertion, and if polling is expensive.
-     * @discussion
-     * This method reports whether the device must be polled to detect media
-     * insertion, and whether a poll is expensive to perform.
-     * 
-     * The term "expensive" typically implies a device that must be spun-up to detect media,
-     * as on a PC floppy. Most devices can detect media inexpensively.
-     * @param pollRequired
-     * Pointer to returned result. True indicates that polling is required; False indicates
-     * that polling is not required to detect media.
-     * @param pollIsExpensive
-     * Pointer to returned result. True indicates that the polling operation is expensive;
-     * False indicates that the polling operation is cheap.
-     */
     virtual IOReturn	reportPollRequirements(bool *pollRequired,
-                                            bool *pollIsExpensive)	= 0;
+                                            bool *pollIsExpensive) __attribute__ ((deprecated));
     
     /*!
      * @function reportRemovability
@@ -445,33 +420,38 @@ public:
      */
     virtual IOReturn	requestIdle(void); /* 10.6.0 */
 
+    virtual IOReturn doDiscard(UInt64 block, UInt64 nblks) __attribute__ ((deprecated));
+
     /*!
-     * @function doDiscard
+     * @function doUnmap
      * @abstract
      * Delete unused data blocks from the media.
-     * @param block
-     * The starting block number of the operation.
-     * @param nblks
-     * The integral number of blocks to be deleted.
+     * @param extents
+     * List of extents.  See IOBlockStorageDeviceExtent.  It is legal for the callee to
+     * overwrite the contents of this buffer in order to satisfy the request.
+     * @param extentsCount
+     * Number of extents.
      */
-    virtual IOReturn doDiscard(UInt64 block, UInt64 nblks); /* 10.6.0 */
+    virtual IOReturn doUnmap(IOBlockStorageDeviceExtent * extents,
+                             UInt32                       extentsCount,
+                             UInt32                       options = 0); /* 10.6.6 */
 
+    OSMetaClassDeclareReservedUsed(IOBlockStorageDevice,  0);
 #ifdef __LP64__
-    OSMetaClassDeclareReservedUnused(IOBlockStorageDevice,  0);
     OSMetaClassDeclareReservedUnused(IOBlockStorageDevice,  1);
     OSMetaClassDeclareReservedUnused(IOBlockStorageDevice,  2);
     OSMetaClassDeclareReservedUnused(IOBlockStorageDevice,  3);
     OSMetaClassDeclareReservedUnused(IOBlockStorageDevice,  4);
     OSMetaClassDeclareReservedUnused(IOBlockStorageDevice,  5);
+    OSMetaClassDeclareReservedUnused(IOBlockStorageDevice,  6);
 #else /* !__LP64__ */
-    OSMetaClassDeclareReservedUsed(IOBlockStorageDevice,  0);
     OSMetaClassDeclareReservedUsed(IOBlockStorageDevice,  1);
     OSMetaClassDeclareReservedUsed(IOBlockStorageDevice,  2);
     OSMetaClassDeclareReservedUsed(IOBlockStorageDevice,  3);
     OSMetaClassDeclareReservedUsed(IOBlockStorageDevice,  4);
     OSMetaClassDeclareReservedUsed(IOBlockStorageDevice,  5);
+    OSMetaClassDeclareReservedUsed(IOBlockStorageDevice,  6);
 #endif /* !__LP64__ */
-    OSMetaClassDeclareReservedUnused(IOBlockStorageDevice,  6);
     OSMetaClassDeclareReservedUnused(IOBlockStorageDevice,  7);
     OSMetaClassDeclareReservedUnused(IOBlockStorageDevice,  8);
     OSMetaClassDeclareReservedUnused(IOBlockStorageDevice,  9);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998-2009 Apple Inc. All rights reserved.
+ * Copyright (c) 1998-2011 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
  * 
@@ -388,22 +388,73 @@ IOReturn IOStorage::discard(IOService * client,
                             UInt64      byteStart,
                             UInt64      byteCount)
 {
+    //
+    // Delete unused data from the storage object at the specified byte offset,
+    // synchronously.
+    //
+
     return kIOReturnUnsupported;
 }
 
-#ifdef __LP64__
-OSMetaClassDefineReservedUnused(IOStorage,  0);
-OSMetaClassDefineReservedUnused(IOStorage,  1);
-OSMetaClassDefineReservedUnused(IOStorage,  2);
-#else /* !__LP64__ */
+IOReturn IOStorage::unmap(IOService *       client,
+                          IOStorageExtent * extents,
+                          UInt32            extentsCount,
+                          UInt32            options)
+{
+    //
+    // Delete unused data from the storage object at the specified byte offsets,
+    // synchronously.
+    //
+
+    return kIOReturnUnsupported;
+}
+
+bool IOStorage::lockPhysicalExtents(IOService * client)
+{
+    //
+    // Lock the contents of the storage object against relocation temporarily,
+    // for the purpose of getting physical extents.
+    //
+
+    return false;
+}
+
+IOStorage * IOStorage::copyPhysicalExtent(IOService * client,
+                                          UInt64 *    byteStart,
+                                          UInt64 *    byteCount)
+{
+    //
+    // Convert the specified byte offset into a physical byte offset, relative
+    // to a physical storage object.  This call should only be made within the
+    // context of lockPhysicalExtents().
+    //
+
+    return NULL;
+}
+
+void IOStorage::unlockPhysicalExtents(IOService * client)
+{
+    //
+    // Unlock the contents of the storage object for relocation again.  This
+    // call must balance a successful call to lockPhysicalExtents().
+    //
+
+    return;
+}
+
 OSMetaClassDefineReservedUsed(IOStorage,  0);
 OSMetaClassDefineReservedUsed(IOStorage,  1);
 OSMetaClassDefineReservedUsed(IOStorage,  2);
-#endif /* !__LP64__ */
-OSMetaClassDefineReservedUnused(IOStorage,  3);
+OSMetaClassDefineReservedUsed(IOStorage,  3);
+#ifdef __LP64__
 OSMetaClassDefineReservedUnused(IOStorage,  4);
 OSMetaClassDefineReservedUnused(IOStorage,  5);
 OSMetaClassDefineReservedUnused(IOStorage,  6);
+#else /* !__LP64__ */
+OSMetaClassDefineReservedUsed(IOStorage,  4);
+OSMetaClassDefineReservedUsed(IOStorage,  5);
+OSMetaClassDefineReservedUsed(IOStorage,  6);
+#endif /* !__LP64__ */
 OSMetaClassDefineReservedUnused(IOStorage,  7);
 OSMetaClassDefineReservedUnused(IOStorage,  8);
 OSMetaClassDefineReservedUnused(IOStorage,  9);

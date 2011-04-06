@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998-2009 Apple Inc. All rights reserved.
+ * Copyright (c) 1998-2011 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
  * 
@@ -613,32 +613,7 @@ int IOMediaBSDClient::ioctl( dev_t   dev,
     // Process a foreign ioctl.
     //
 
-    int error = 0;
-
-    switch ( cmd )
-    {
-        default:
-        {
-            //
-            // A foreign ioctl was received.  Log an error to the console.
-            //
-
-            IOLog( "%s: ioctl(%s\'%c\',%d,%d) is unsupported.\n",
-                   gIOMediaBSDClientGlobals.getMinor(getminor(dev))->name,
-                   ((cmd & IOC_INOUT) == IOC_INOUT) ? ("_IOWR,") :
-                     ( ((cmd & IOC_OUT) == IOC_OUT) ? ("_IOR,") :
-                       ( ((cmd & IOC_IN) == IOC_IN) ? ("_IOW,") :
-                         ( ((cmd & IOC_VOID) == IOC_VOID) ? ("_IO,") : "" ) ) ),
-                   (char) IOCGROUP(cmd),
-                   (int)  (cmd & 0xff),
-                   (int)  IOCPARM_LEN(cmd) );
-
-            error = ENOTTY;
-
-        } break;
-    }
-
-    return error;                                       // (return error status)
+    return ENOTTY;
 }
 
 #ifdef __LP64__
@@ -681,6 +656,22 @@ typedef struct
     uint8_t       reserved0096[4];
 } dk_format_capacities_64_t;
 
+typedef struct
+{
+    user32_addr_t extents;
+    uint32_t      extentsCount;
+
+    uint8_t       reserved0064[8];
+} dk_unmap_32_t;
+
+typedef struct
+{
+    user64_addr_t extents;
+    uint32_t      extentsCount;
+
+    uint8_t       reserved0096[4];
+} dk_unmap_64_t;
+
 static IOStorageAccess DK_ADD_ACCESS(IOStorageAccess a1, IOStorageAccess a2)
 {
     static UInt8 table[4][4] =
@@ -716,6 +707,135 @@ static bool DKIOC_IS_RESERVED(caddr_t data, uint32_t reserved)
     }
 
     return false;
+}
+
+UInt64 _IOMediaBSDClientGetThrottleMask(IOMedia * media)
+{
+    UInt64 mask;
+
+    mask = 0;
+
+    if ( media )
+    {
+        int error;
+
+        error = EAGAIN;
+
+        while ( error )
+        {
+            // Iterate through IOBlockStorageDevice objects.
+
+            IORegistryIterator * devices;
+
+            error = 0;
+
+            mask = 0;
+
+            devices = IORegistryIterator::iterateOver( media, gIOServicePlane, kIORegistryIterateParents );
+
+            if ( devices )
+            {
+                IORegistryEntry * device;
+
+                device = devices->getNextObjectRecursive( );
+
+                while ( device )
+                {
+                    if ( OSDynamicCast( IOBlockStorageDevice, device ) )
+                    {
+                        // Iterate through IOMedia objects.
+
+                        IORegistryIterator * services;
+
+                        services = IORegistryIterator::iterateOver( device, gIOServicePlane );
+
+                        if ( services )
+                        {
+                            IORegistryEntry * service;
+
+                            service = services->getNextObjectRecursive( );
+
+                            while ( service )
+                            {
+                                if ( OSDynamicCast( IOMedia, service ) )
+                                {
+                                    // Obtain the BSD Unit property.
+
+                                    OSNumber * unit;
+
+                                    unit = OSDynamicCast( OSNumber, service->getProperty( kIOBSDUnitKey ) );
+
+                                    if ( unit )
+                                    {
+                                        mask |= 1 << ( unit->unsigned32BitValue( ) % 64 );
+                                    }
+                                }
+
+                                service = services->getNextObjectRecursive( );
+                            }
+
+                            if ( services->isValid( ) == false )
+                            {
+                                error = EAGAIN;
+                            }
+
+                            services->release( );
+                        }
+
+///w:start
+                        OSNumber * number;
+
+                        number = OSDynamicCast( OSNumber, device->getProperty( "throttle-unit" ) );
+
+                        if ( number )
+                        {
+                            OSDictionary * dictionary;
+
+                            dictionary = IOService::serviceMatching( kIOMediaClass );
+
+                            if ( dictionary )
+                            {
+                                OSIterator * iterator;
+
+                                dictionary->setObject( kIOBSDUnitKey, number );
+
+                                iterator = IOService::getMatchingServices( dictionary );
+
+                                if ( iterator )
+                                {
+                                    OSObject * object;
+
+                                    object = iterator->getNextObject( );
+
+                                    if ( object )
+                                    {
+                                        mask |= _IOMediaBSDClientGetThrottleMask( ( IOMedia * ) object );
+                                    }
+
+                                    iterator->release( );
+                                }
+
+                                dictionary->release( );
+                            }
+                        }
+///w:stop
+                        devices->exitEntry( );
+                    }
+
+                    device = devices->getNextObjectRecursive( );
+                }
+
+                if ( devices->isValid( ) == false )
+                {
+                    error = EAGAIN;
+                }
+
+                devices->release( );
+            }
+        }
+    }
+
+    return mask;
 }
 
 int dkopen(dev_t dev, int flags, int devtype, proc_t /* proc */)
@@ -1565,11 +1685,20 @@ int dkioctl(dev_t dev, u_long cmd, caddr_t data, int flags, proc_t proc)
                     capacity.blockCount = capacities[index] / blockSize;
                     capacity.blockSize  = blockSize;
 
-                    error = copyout(
-                      /* kaddr */ &capacity,
-                      /* uaddr */ request.capacities + index * sizeof(dk_format_capacity_t),
-                      /* len   */ sizeof(dk_format_capacity_t) );
-                    if ( error )  break; 
+                    if ( proc == kernproc )
+                    {
+                        bcopy( /* src */ &capacity,
+                               /* dst */ (void *) (request.capacities + index * sizeof(dk_format_capacity_t)),
+                               /* n   */ sizeof(dk_format_capacity_t) );
+                    }
+                    else
+                    {
+                        error = copyout( /* kaddr */ &capacity,
+                                         /* uaddr */ request.capacities + index * sizeof(dk_format_capacity_t),
+                                         /* len   */ sizeof(dk_format_capacity_t) );
+                    }
+
+                    if ( error )  break;
                 }
 
                 IODelete(capacities, UInt64, capacitiesCount);
@@ -1609,8 +1738,9 @@ int dkioctl(dev_t dev, u_long cmd, caddr_t data, int flags, proc_t proc)
             // This ioctl asks that the media object delete unused data.
             //
 
-            dk_discard_t * request;
-            IOReturn       status;
+            IOStorageExtent extent;
+            dk_discard_t *  request;
+            IOReturn        status;
 
             request = (dk_discard_t *) data;
 
@@ -1618,11 +1748,80 @@ int dkioctl(dev_t dev, u_long cmd, caddr_t data, int flags, proc_t proc)
 
             // Delete unused data from the media.
 
-            status = minor->media->discard( /* client    */ minor->client,
-                                            /* byteStart */ request->offset,
-                                            /* byteCount */ request->length );
+            extent.byteStart = request->offset;
+            extent.byteCount = request->length;
+
+            status = minor->media->unmap( /* client       */ minor->client,
+                                          /* extents      */ &extent,
+                                          /* extentsCount */ 1 );
 
             error = minor->media->errnoFromReturn(status);
+
+        } break;
+
+        case DKIOCUNMAP:                                         // (dk_unmap_t)
+        {
+            //
+            // This ioctl asks that the media object delete unused data.
+            //
+
+            IOStorageExtent * extents;
+            dk_unmap_64_t     request;
+            dk_unmap_32_t *   request32;
+            dk_unmap_64_t *   request64;
+            IOReturn          status;
+
+            assert(sizeof(dk_extent_t) == sizeof(IOStorageExtent));
+
+            request32 = (dk_unmap_32_t *) data;
+            request64 = (dk_unmap_64_t *) data;
+
+            if ( proc_is64bit(proc) )
+            {
+                if ( DKIOC_IS_RESERVED(data, 0xF000) )  { error = EINVAL;  break; }
+
+                request.extents      = request64->extents;
+                request.extentsCount = request64->extentsCount;
+            }
+            else
+            {
+                if ( DKIOC_IS_RESERVED(data, 0xFF00) )  { error = EINVAL;  break; }
+
+                request.extents      = request32->extents;
+                request.extentsCount = request32->extentsCount;
+            }
+
+            // Delete unused data from the media.
+
+            if ( request.extents == 0 )  { error = EINVAL;  break; }
+
+            extents = IONew(IOStorageExtent, request.extentsCount);
+
+            if ( extents == 0 )  { error = ENOMEM;  break; }
+
+            if ( proc == kernproc )
+            {
+                bcopy( /* src */ (void *) request.extents,
+                       /* dst */ extents,
+                       /* n   */ request.extentsCount * sizeof(IOStorageExtent) );
+            }
+            else
+            {
+                error = copyin( /* uaddr */ request.extents,
+                                /* kaddr */ extents,
+                                /* len   */ request.extentsCount * sizeof(IOStorageExtent) );
+            }
+
+            if ( error == 0 )
+            {
+                status = minor->media->unmap( /* client       */ minor->client,
+                                              /* extents      */ extents,
+                                              /* extentsCount */ request.extentsCount );
+
+                error = minor->media->errnoFromReturn(status);
+            }
+
+            IODelete(extents, IOStorageExtent, request.extentsCount);
 
         } break;
 
@@ -1682,6 +1881,33 @@ int dkioctl(dev_t dev, u_long cmd, caddr_t data, int flags, proc_t proc)
 
         } break;
 
+        case DKIOCISSOLIDSTATE:                                  // (uint32_t *)
+        {
+            //
+            // This ioctl returns truth if the device is solid state.
+            //
+
+            OSDictionary * dictionary = OSDynamicCast(
+                         /* class  */ OSDictionary,
+                         /* object */ minor->media->getProperty(
+                                 /* key   */ kIOPropertyDeviceCharacteristicsKey,
+                                 /* plane */ gIOServicePlane ) );
+
+            *(uint32_t *)data = false;
+
+            if ( dictionary )
+            {
+                OSString * string = OSDynamicCast(
+                         /* class  */ OSString,
+                         /* object */ dictionary->getObject(
+                                 /* key   */ kIOPropertyMediumTypeKey ) );
+
+                if ( string && string->isEqualTo(kIOPropertyMediumTypeSolidStateKey) )
+                    *(uint32_t *)data = true;
+            }
+
+        } break;
+
         case DKIOCISVIRTUAL:                                     // (uint32_t *)
         {
             //
@@ -1698,12 +1924,12 @@ int dkioctl(dev_t dev, u_long cmd, caddr_t data, int flags, proc_t proc)
 
             if ( dictionary )
             {
-                OSString * string = OSDynamicCast( 
+                OSString * string = OSDynamicCast(
                          /* class  */ OSString,
                          /* object */ dictionary->getObject(
                                  /* key   */ kIOPropertyPhysicalInterconnectTypeKey ) );
 
-                if ( string && string->isEqualTo( kIOPropertyPhysicalInterconnectTypeVirtual ) )
+                if ( string && string->isEqualTo(kIOPropertyPhysicalInterconnectTypeVirtual) )
                     *(uint32_t *)data = true;
             }
 
@@ -1737,15 +1963,15 @@ int dkioctl(dev_t dev, u_long cmd, caddr_t data, int flags, proc_t proc)
             {
                 OSBoolean * boolean;
 
-                boolean = OSDynamicCast( 
+                boolean = OSDynamicCast(
                          /* class  */ OSBoolean,
                          /* object */ dictionary->getObject(
-                                 /* key   */ kIOStorageFeatureDiscard ) );
+                                 /* key   */ kIOStorageFeatureUnmap ) );
 
                 if ( boolean == kOSBooleanTrue )
-                    *(uint32_t *)data |= DK_FEATURE_DISCARD;
+                    *(uint32_t *)data |= DK_FEATURE_UNMAP;
 
-                boolean = OSDynamicCast( 
+                boolean = OSDynamicCast(
                          /* class  */ OSBoolean,
                          /* object */ dictionary->getObject(
                                  /* key   */ kIOStorageFeatureForceUnitAccess ) );
@@ -1842,6 +2068,87 @@ int dkioctl_bdev(dev_t dev, u_long cmd, caddr_t data, int flags, proc_t proc)
                                       minor->bdevBlockSize    );
             else
                 *(uint64_t *)data = 0;
+
+        } break;
+
+        case DKIOCGETTHROTTLEMASK:                               // (uint64_t *)
+        {
+            //
+            // This ioctl returns the throttle mask for the media object.
+            //
+
+            *( ( uint64_t * ) data ) = _IOMediaBSDClientGetThrottleMask( minor->media );
+
+        } break;
+
+        case DKIOCLOCKPHYSICALEXTENTS:                                 // (void)
+        {
+            bool success;
+
+            success = minor->media->lockPhysicalExtents( minor->client );
+
+            if ( success == false )
+            {
+                error = ENOTSUP;
+            }
+
+        } break;
+
+        case DKIOCGETPHYSICALEXTENT:                   // (dk_physical_extent_t)
+        {
+            dk_physical_extent_t * request;
+            
+            request = ( dk_physical_extent_t * ) data;
+
+            if ( DKIOC_IS_RESERVED( data, 0xFFFF0000 ) == false )
+            {
+                IOStorage * media;
+
+                media = minor->media->copyPhysicalExtent( minor->client, &request->offset, &request->length );
+
+                if ( media )
+                {
+                    OSNumber * majorID;
+
+                    majorID = OSDynamicCast( OSNumber, media->getProperty( kIOBSDMajorKey ) );
+
+                    if ( majorID )
+                    {
+                        OSNumber * minorID;
+
+                        minorID = OSDynamicCast( OSNumber, media->getProperty( kIOBSDMinorKey ) );
+
+                        if ( minorID )
+                        {
+                            request->dev = makedev( majorID->unsigned32BitValue( ), minorID->unsigned32BitValue( ) );
+                        }
+                        else
+                        {
+                            error = ENODEV;
+                        }
+                    }
+                    else
+                    {
+                        error = ENODEV;
+                    }
+
+                    media->release( );
+                }
+                else
+                {
+                    error = ENOTSUP;
+                }
+            }
+            else
+            {
+                error = EINVAL;
+            }
+
+        } break;
+
+        case DKIOCUNLOCKPHYSICALEXTENTS:                               // (void)
+        {
+            minor->media->unlockPhysicalExtents( minor->client );
 
         } break;
 
@@ -2042,7 +2349,8 @@ inline IOStorageAttributes DKR_GET_ATTRIBUTES(dkr_t dkr, dkrtype_t dkrtype)
 
         flags = buf_flags(bp);
 
-        attributes.options |= (flags & B_FUA) ? kIOStorageOptionForceUnitAccess : 0;
+        attributes.options |= (flags & B_FUA         ) ? kIOStorageOptionForceUnitAccess : 0;
+        attributes.options |= (flags & B_ENCRYPTED_IO) ? kIOStorageOptionIsEncrypted     : 0;
     }
 
     return attributes;
@@ -2260,7 +2568,10 @@ void dkreadwritecompletion( void *   target,
 
     if ( status != kIOReturnSuccess )                         // (has an error?)
     {
-        IOLog("%s: %s.\n", minor->name, minor->media->stringFromReturn(status));
+        if ( status != kIOReturnNotPermitted )
+        {
+            IOLog("%s: %s.\n", minor->name, minor->media->stringFromReturn(status));
+        }
     }
 
     if ( DKR_IS_ASYNCHRONOUS(dkr, dkrtype) )       // (an asynchronous request?)

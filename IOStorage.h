@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1998-2009 Apple Inc. All rights reserved.
+ * Copyright (c) 1998-2011 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
  * 
@@ -70,16 +70,16 @@
 #define kIOStorageFeaturesKey "IOStorageFeatures"
 
 /*!
- * @defined kIOStorageFeatureDiscard
+ * @defined kIOStorageFeatureUnmap
  * @abstract
- * Describes the presence of the Discard feature.
+ * Describes the presence of the Unmap feature.
  * @discussion
  * This property describes the ability of the storage stack to delete unused
  * data from the media.  It is one of the feature entries listed under the top-
  * level kIOStorageFeaturesKey property table.  It has an OSBoolean value.
  */
 
-#define kIOStorageFeatureDiscard "Discard"
+#define kIOStorageFeatureUnmap "Unmap"
 
 /*!
  * @defined kIOStorageFeatureForceUnitAccess
@@ -138,13 +138,16 @@ typedef UInt32 IOStorageAccess;
  * Options for read and write storage requests.
  * @constant kIOStorageOptionForceUnitAccess
  * Force the request to access the media.
+ * @constant kIOStorageOptionIsEncrypted
+ * The data is already encrypted.
  */
 
 enum
 {
     kIOStorageOptionNone            = 0x00000000,
     kIOStorageOptionForceUnitAccess = 0x00000001,
-    kIOStorageOptionReserved        = 0xFFFFFFFE
+    kIOStorageOptionIsEncrypted     = 0x00000010,
+    kIOStorageOptionReserved        = 0xFFFFFFEE
 };
 
 typedef UInt32 IOStorageOptions;
@@ -162,12 +165,31 @@ typedef UInt32 IOStorageOptions;
 struct IOStorageAttributes
 {
     IOStorageOptions options;
+#ifdef __LP64__
     UInt32           reserved0032;
     UInt64           reserved0064;
-#ifdef __LP64__
     UInt64           reserved0128;
-    UInt64           reserved0192;
-#endif /* __LP64__ */
+    void *           bufattr;
+#else /* !__LP64__ */
+    void *           bufattr;
+    UInt64           reserved0064;
+#endif /* !__LP64__ */
+};
+
+/*!
+ * @struct IOStorageExtent
+ * @discussion
+ * Extent for unmap storage requests.
+ * @field byteStart
+ * Starting byte offset for the operation.
+ * @field byteCount
+ * Size of the operation.
+ */
+
+struct IOStorageExtent
+{
+    UInt64 byteStart;
+    UInt64 byteCount;
 };
 
 /*!
@@ -514,38 +536,91 @@ public:
                        IOStorageCompletion * completion); /* 10.5.0 */
 #endif /* !__LP64__ */
 
+    virtual IOReturn discard(IOService * client,
+                             UInt64      byteStart,
+                             UInt64      byteCount) __attribute__ ((deprecated));
+
     /*!
-     * @function discard
+     * @function unmap
      * @discussion
-     * Delete unused data from the storage object at the specified byte offset,
+     * Delete unused data from the storage object at the specified byte offsets,
      * synchronously.
      * @param client
      * Client requesting the operation.
-     * @param byteStart
-     * Starting byte offset for the operation.
-     * @param byteCount
-     * Size of the operation.
+     * @param extents
+     * List of extents.  See IOStorageExtent.  It is legal for the callee to
+     * overwrite the contents of this buffer in order to satisfy the request.
+     * @param extentsCount
+     * Number of extents.
      * @result
      * Returns the status of the operation.
      */
 
-    virtual IOReturn discard(IOService * client,
-                             UInt64      byteStart,
-                             UInt64      byteCount); /* 10.6.0 */
+    virtual IOReturn unmap(IOService *       client,
+                           IOStorageExtent * extents,
+                           UInt32            extentsCount,
+                           UInt32            options = 0); /* 10.6.6 */
 
-#ifdef __LP64__
-    OSMetaClassDeclareReservedUnused(IOStorage,  0);
-    OSMetaClassDeclareReservedUnused(IOStorage,  1);
-    OSMetaClassDeclareReservedUnused(IOStorage,  2);
-#else /* !__LP64__ */
+    /*!
+     * @function lockPhysicalExtents
+     * @discussion
+     * Lock the contents of the storage object against relocation temporarily,
+     * for the purpose of getting physical extents.
+     * @param client
+     * Client requesting the operation.
+     * @result
+     * Returns true if the lock was successful, false otherwise.
+     */
+
+    virtual bool lockPhysicalExtents(IOService * client); /* 10.7.0 */
+
+    /*!
+     * @function copyPhysicalExtent
+     * @discussion
+     * Convert the specified byte offset into a physical byte offset, relative
+     * to a physical storage object.  This call should only be made within the
+     * context of lockPhysicalExtents().
+     * @param client
+     * Client requesting the operation.
+     * @param byteStart
+     * Starting byte offset for the operation.  Returns a physical byte offset,
+     * relative to the physical storage object, on success.
+     * @param byteCount
+     * Size of the operation.  Returns the actual number of bytes which can be
+     * transferred, relative to the physical storage object, on success. 
+     * @result
+     * A reference to the physical storage object, which should be released by
+     * the caller, or a null on error.
+     */
+
+    virtual IOStorage * copyPhysicalExtent(IOService * client,
+                                           UInt64 *    byteStart,
+                                           UInt64 *    byteCount); /* 10.7.0 */
+
+    /*!
+     * @function unlockPhysicalExtents
+     * @discussion
+     * Unlock the contents of the storage object for relocation again.  This
+     * call must balance a successful call to lockPhysicalExtents().
+     * @param client
+     * Client requesting the operation.
+     */
+
+    virtual void unlockPhysicalExtents(IOService * client); /* 10.7.0 */
+
     OSMetaClassDeclareReservedUsed(IOStorage,  0);
     OSMetaClassDeclareReservedUsed(IOStorage,  1);
     OSMetaClassDeclareReservedUsed(IOStorage,  2);
-#endif /* !__LP64__ */
-    OSMetaClassDeclareReservedUnused(IOStorage,  3);
+    OSMetaClassDeclareReservedUsed(IOStorage,  3);
+#ifdef __LP64__
     OSMetaClassDeclareReservedUnused(IOStorage,  4);
     OSMetaClassDeclareReservedUnused(IOStorage,  5);
     OSMetaClassDeclareReservedUnused(IOStorage,  6);
+#else /* !__LP64__ */
+    OSMetaClassDeclareReservedUsed(IOStorage,  4);
+    OSMetaClassDeclareReservedUsed(IOStorage,  5);
+    OSMetaClassDeclareReservedUsed(IOStorage,  6);
+#endif /* !__LP64__ */
     OSMetaClassDeclareReservedUnused(IOStorage,  7);
     OSMetaClassDeclareReservedUnused(IOStorage,  8);
     OSMetaClassDeclareReservedUnused(IOStorage,  9);
