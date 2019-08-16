@@ -1792,7 +1792,36 @@ IOBlockStorageDriver::setPriority(IOService *       client,
 bool
 IOBlockStorageDriver::validateNewMedia(void)
 {
-    return(true);
+	int boot_arg_value = 0;
+
+	bool boot_arg_found = PE_parse_boot_argn("disable_external_storage", &boot_arg_value, sizeof(boot_arg_value));
+
+	if (!boot_arg_found) {
+		return(true);
+	}
+
+	if (boot_arg_value == 0) {
+		return(true);
+	}
+
+	if (_removable || _ejectable) {
+		return(false);
+	}
+
+	OSDictionary *dictionary = OSDynamicCast(OSDictionary, getProvider()->getProperty(kIOPropertyProtocolCharacteristicsKey));
+
+	if (dictionary) {
+		OSString *string = OSDynamicCast(OSString, dictionary->getObject(kIOPropertyPhysicalInterconnectLocationKey));
+
+		if (string) {
+			if (string->isEqualTo(kIOPropertyInternalKey)) {
+				return(true);
+			}
+		}
+	}
+
+	return(false);
+
 }
 
 // -----------------------------------------------------------------------------
@@ -1841,8 +1870,8 @@ protected:
         kStageDone
     } _stage;
 
-    virtual void free();
-    virtual uint64_t getPreparationID( void );
+    virtual void free() APPLE_KEXT_OVERRIDE;
+    virtual uint64_t getPreparationID( void ) APPLE_KEXT_OVERRIDE;
 
 public:
 
@@ -1864,11 +1893,11 @@ public:
 
     virtual addr64_t getPhysicalSegment( IOByteCount   offset,
                                          IOByteCount * length,
-                                         IOOptionBits  options = 0 );
+                                         IOOptionBits  options = 0 ) APPLE_KEXT_OVERRIDE;
 
-    virtual IOReturn prepare(IODirection forDirection = kIODirectionNone);
+    virtual IOReturn prepare(IODirection forDirection = kIODirectionNone) APPLE_KEXT_OVERRIDE;
 
-    virtual IOReturn complete(IODirection forDirection = kIODirectionNone);
+    virtual IOReturn complete(IODirection forDirection = kIODirectionNone) APPLE_KEXT_OVERRIDE;
 
     virtual bool getNextStage();
 
@@ -2515,7 +2544,7 @@ void IOBlockStorageDriver::deblockRequestCompletion( void *   target,
 
     callback = deblocker->getThreadCallback();
 
-#if !TARGET_OS_EMBEDDED
+#if TARGET_OS_OSX
     if ( callback == 0 )
     {
         if ( deblocker->setThreadCallback(deblockRequestExecute) == false )
@@ -2523,7 +2552,7 @@ void IOBlockStorageDriver::deblockRequestCompletion( void *   target,
             status = kIOReturnNoMemory;
         }
     }
-#endif /* !TARGET_OS_EMBEDDED */
+#endif /* TARGET_OS_OSX */
 
     // Determine whether an error occurred or whether there are no more stages.
 
@@ -2635,7 +2664,7 @@ protected:
 
     thread_call_t              _threadCallback;
 
-    virtual void free();
+    virtual void free() APPLE_KEXT_OVERRIDE;
 
 public:
 
@@ -3239,7 +3268,7 @@ void IOBlockStorageDriver::breakUpRequestCompletion( void *   target,
 
     callback = breaker->getThreadCallback();
 
-#if !TARGET_OS_EMBEDDED
+#if TARGET_OS_OSX
     if ( callback == 0 )
     {
         if ( breaker->setThreadCallback(breakUpRequestExecute) == false )
@@ -3247,7 +3276,7 @@ void IOBlockStorageDriver::breakUpRequestCompletion( void *   target,
             status = kIOReturnNoMemory;
         }
     }
-#endif /* !TARGET_OS_EMBEDDED */
+#endif /* TARGET_OS_OSX */
 
     // Determine whether an error occurred or whether there are no more stages.
 
